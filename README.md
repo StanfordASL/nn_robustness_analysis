@@ -1,5 +1,28 @@
 ### About
 
+This repository contains code for the neural network controller experiment (Section 6.2) in our sampling-based reachability analysis paper (T. Lew, L. Janson, R. Bonalli, M. Pavone, ["A Simple and Efficient Sampling-based Algorithmfor General Reachability Analysis"](https://arxiv.org/abs/2112.05745), 2021).
+
+This code is based on the work of M. Everett et al, see https://github.com/mit-acl/nn_robustness_analysis which this code is forked from. 
+
+Differences with the original repository are as follows:
+* Implementation of sampling-based reachability analysis algorithms:
+	* RandUP (see also https://github.com/StanfordASL/RandUP and https://github.com/StanfordASL/UP)
+	* The kernel-based method in (A. Thorpe et al, ["Learning Approximate Forward Reachable Sets Using Separating Kernels"](http://proceedings.mlr.press/v144/thorpe21a/thorpe21a.pdf), L4DC, 2021)
+	* GoTube (S. Gruenbacher et al, ["GoTube: Scalable stochastic verification of continuous-depth models"](https://arxiv.org/abs/2107.08467), AAAI, 2022)
+* Computation of the Hausdorff distance (in nn_closed_loop/nn_closed_loop/utils/utils.py)
+
+To reproduce the results in Section 6.2, run:
+```bash
+python -m nn_closed_loop.experiments_randUP_runtime_HausdorffDist
+python -m nn_closed_loop.experiments_randUP_reachableSets_plots
+```
+
+The installation of all dependencies is described below, please also see https://github.com/mit-acl/nn_robustness_analysis.
+
+
+
+### About nn_robustness_analysis (forked from mit-acl/nn_robustness_analysis)
+
 This repository provides Python implementations for the robustness analysis tools in some of our recent papers. This research is supported by Ford Motor Company.
 
 #### `nn_partition`

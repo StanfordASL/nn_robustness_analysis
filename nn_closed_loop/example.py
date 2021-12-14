@@ -1,4 +1,7 @@
 import numpy as np
+import nn_closed_loop.sampling_based.randUP as randUP
+import nn_closed_loop.sampling_based.kernelUP as kernelUP
+import nn_closed_loop.sampling_based.GoTube as GoTube
 import nn_closed_loop.dynamics as dynamics
 import nn_closed_loop.analyzers as analyzers
 import nn_closed_loop.constraints as constraints
@@ -13,10 +16,12 @@ import argparse
 
 def main(args):
     np.random.seed(seed=0)
-    stats = {}
-
+    num_calls = args.num_calls # for computation time
+    print("[example.py::main] Running each alg. num_calls =", num_calls, "times.")
     # Load NN control policy
-    controller = load_controller(name=args.system)
+    controller = load_controller(name=args.controller_model)
+    # [Lew] If you get an error with Keras, try running
+    # pip install 'h5py==2.10.0' --force-reinstall 
 
     # Dynamics
     if args.system == "double_integrator":
@@ -103,6 +108,70 @@ def main(args):
     else:
         raise NotImplementedError
 
+    # --------------------------------------------------
+    # Compute reachable sets
+    if not(args.sampling_based):
+        # Run formal method + plotting
+        stats, analyzer_info = main_formal_method(controller, 
+                                                  dyn,
+                                                  init_state_range,
+                                                  args,
+                                                  num_calls=num_calls)
+        return stats, analyzer_info
+
+
+    elif args.sampling_based:
+        # Prepare input
+        if args.boundaries == "polytope":
+            A_inputs, b_inputs = range_to_polytope(init_state_range)
+            input_constraint = constraints.PolytopeConstraint(
+                A_inputs, b_inputs
+            )
+        elif args.boundaries == "lp":
+            input_constraint = constraints.LpConstraint(
+                range=init_state_range, p=np.inf
+            )
+        else:
+            raise NotImplementedError
+
+        if args.randUP:
+            # Run randUP + plotting
+            stats, analyzer_info = main_randUP(controller, 
+                                               dyn,
+                                               input_constraint,
+                                               args,
+                                               num_calls=num_calls)
+            return stats, analyzer_info
+        elif args.kernelUP:
+            # Run kernel method + plotting
+            stats, analyzer_info = main_kernelUP(controller, 
+                                               dyn,
+                                               input_constraint,
+                                               args,
+                                               num_calls=5)
+            return stats, analyzer_info
+        elif args.GoTube:
+            # Run GoTube method + plotting
+            stats, analyzer_info = main_GoTube(controller, 
+                                               dyn,
+                                               input_constraint,
+                                               args,
+                                               num_calls=num_calls)
+            return stats, analyzer_info
+
+        else:
+            raise NotImplementedError("Unknown RA method.")
+
+
+
+def main_formal_method(controller, 
+                       dyn,
+                       init_state_range,
+                       args,
+                       num_calls=2):
+    stats = {}
+
+    # Run a formal method with an analyzer and a partitioner
     if args.num_partitions is None:
         num_partitions = np.array([4, 4])
     else:
@@ -153,11 +222,15 @@ def main(args):
         # Run the analyzer N times to compute an estimated runtime
         import time
 
-        num_calls = 5
         times = np.empty(num_calls)
-        final_errors = np.empty(num_calls)
-        avg_errors = np.empty(num_calls, dtype=np.ndarray)
-        all_errors = np.empty(num_calls, dtype=np.ndarray)
+        area_final_errors = np.empty(num_calls)
+        area_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        area_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_final_errors = np.empty(num_calls)
+        haus_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        B_all_conserv = np.empty(num_calls)
+        B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
         output_constraints = np.empty(num_calls, dtype=object)
         for num in range(num_calls):
             print('call: {}'.format(num))
@@ -169,29 +242,51 @@ def main(args):
             t = t_end - t_start
             times[num] = t
 
-            final_error, avg_error, all_error = analyzer.get_error(input_constraint, output_constraint, t_max=args.t_max)
-            final_errors[num] = final_error
-            avg_errors[num] = avg_error
-            all_errors[num] = all_error
             output_constraints[num] = output_constraint
 
-        stats['runtimes'] = times
-        stats['final_step_errors'] = final_errors
-        stats['avg_errors'] = avg_errors
-        stats['all_errors'] = all_errors
-        stats['output_constraints'] = output_constraints
+            # comput errors
+            errors, B_conservative = analyzer.get_error(input_constraint, 
+                                                        output_constraint,
+                                                        t_max=args.t_max)
+            (area_final_error, area_avg_error, area_all_error,
+             haus_final_error, haus_avg_error, haus_all_error) = errors
+            B_vec_conservative, B_all_conservative = B_conservative
+            area_final_errors[num] = area_final_error
+            area_avg_errors[num]   = area_avg_error
+            area_all_errors[num]   = area_all_error
+            haus_final_errors[num] = haus_final_error
+            haus_avg_errors[num]   = haus_avg_error
+            haus_all_errors[num]   = haus_all_error
+            B_all_conserv[num]     = B_all_conservative
+            B_vec_conserv[num]     = B_vec_conservative
 
-        print("All times: {}".format(times))
-        print("Avg time: {} +/- {}".format(times.mean(), times.std()))
+        stats['runtimes'] = times
+        stats['area_final_step_errors'] = area_final_errors
+        stats['area_avg_errors']        = area_avg_errors
+        stats['area_all_errors']        = area_all_errors
+        stats['haus_final_step_errors'] = haus_final_errors
+        stats['haus_avg_errors']        = haus_avg_errors
+        stats['haus_all_errors']        = haus_all_errors
+        stats['B_all_conserv']          = B_all_conserv
+        stats['B_vec_conserv']          = B_vec_conserv
+        stats['output_constraints']     = output_constraints
+
     else:
         # Run analysis once
         output_constraint, analyzer_info = analyzer.get_reachable_set(
             input_constraint, output_constraint, t_max=args.t_max
         )
 
-    if args.estimate_error:
-        final_error, avg_error, errors = analyzer.get_error(input_constraint, output_constraint, t_max=args.t_max)
-        print('Final step approximation error:{:.2f}\nAverage approximation error: {:.2f}\nAll errors: {}'.format(final_error, avg_error, errors))
+    # if args.estimate_error:
+    #     errors = analyzer.get_error(input_constraint, 
+    #                                 output_constraint,
+    #                                 t_max=args.t_max)
+    #     (final_area_error, avg_area_error, all_area_error,
+    #      final_haus_error, avg_haus_error, all_haus_error) = errors
+    #     area_final_errors = final_area_error
+    #     area_avg_errors   = avg_area_error
+    #     area_all_errors   = all_area_error
+    #     # print('Final step approximation error:{:.2f}\nAverage approximation error: {:.2f}\nAll errors: {}'.format(final_area_error, avg_area_error, all_area_error))
 
     if args.save_plot:
         save_dir = "{}/results/examples/".format(
@@ -261,6 +356,470 @@ def main(args):
         )
 
     return stats, analyzer_info
+
+def main_randUP(controller, 
+                dyn,
+                input_constraint,
+                args,
+                num_calls=2):
+    stats = {}
+
+
+    # Run randUP
+    if args.estimate_runtime:
+        # Run the analyzer N times to compute an estimated runtime
+        import time
+
+        times = np.empty(num_calls)
+        area_final_errors = np.empty(num_calls)
+        area_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        area_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_final_errors = np.empty(num_calls)
+        haus_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        B_all_conserv = np.empty(num_calls)
+        B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
+        output = []
+        for num in range(num_calls):
+            print('randUP call: {}'.format(num))
+
+            UP = randUP(dyn, 
+                        controller, 
+                        nb_samples=args.nb_samples,
+                        padding_eps=args.epsilon)
+
+            t_start = time.time()
+            reachable_sets, analyzer_info = UP.get_reachable_set(
+                                                    input_constraint, 
+                                                    args.t_max,
+                                                    seed_id=num
+                                                )
+            t_end = time.time()
+            t = t_end - t_start
+            times[num] = t
+
+            # compute errors
+            errors, B_conservative = UP.get_error(input_constraint, 
+                                                  reachable_sets,
+                                                  t_max=args.t_max)
+            (area_final_error, area_avg_error, area_all_error,
+             haus_final_error, haus_avg_error, haus_all_error) = errors
+            B_vec_conservative, B_all_conservative = B_conservative
+            area_final_errors[num] = area_final_error
+            area_avg_errors[num]   = area_avg_error
+            area_all_errors[num]   = area_all_error
+            haus_final_errors[num] = haus_final_error
+            haus_avg_errors[num]   = haus_avg_error
+            haus_all_errors[num]   = haus_all_error
+            B_all_conserv[num]     = B_all_conservative
+            B_vec_conserv[num]     = B_vec_conservative
+            output.append(reachable_sets)
+
+        stats['runtimes'] = times
+        stats['area_final_step_errors'] = area_final_errors
+        stats['area_avg_errors']        = area_avg_errors
+        stats['area_all_errors']        = area_all_errors
+        stats['haus_final_step_errors'] = haus_final_errors
+        stats['haus_avg_errors']        = haus_avg_errors
+        stats['haus_all_errors']        = haus_all_errors
+        stats['B_all_conserv']          = B_all_conserv
+        stats['B_vec_conserv']          = B_vec_conserv
+        stats['output_constraints']     = output
+
+    else:
+        UP = randUP(dyn, 
+                    controller,
+                    nb_samples=args.nb_samples,
+                    padding_eps=args.epsilon)
+        reachable_sets, analyzer_info = UP.get_reachable_set(
+                                                input_constraint, 
+                                                args.t_max
+                                            )
+        output = [reachable_sets]
+    # End randUP
+
+    # plot
+    if args.save_plot:
+        save_dir = "{}/results/examples/".format(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Ugly logic to embed parameters in filename:
+        pars = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    partitioner_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key
+                not in [
+                    "make_animation",
+                    "show_animation",
+                    "type",
+                    "num_partitions",
+                ]
+            ]
+        )
+        pars2 = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    propagator_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key not in ["input_shape", "type"]
+            ]
+        )
+        analyzer_info["save_name"] = (
+            save_dir
+            + args.system
+            + pars
+            + "_"
+            + partitioner_hyperparams["type"]
+            + "_"
+            + propagator_hyperparams["type"]
+            + "_"
+            + "tmax"
+            + "_"
+            + str(round(args.t_max, 1))
+            + "_"
+            + args.boundaries
+            + "_"
+            + str(args.num_polytope_facets)
+        )
+        if len(pars2) > 0:
+            analyzer_info["save_name"] = (
+                analyzer_info["save_name"] + "_" + pars2
+            )
+        analyzer_info["save_name"] = analyzer_info["save_name"] + ".png"
+    if args.show_plot or args.save_plot:
+        UP.visualize(
+            input_constraint,
+            output,
+            show_samples=True,
+            show=args.show_plot,
+            labels=args.plot_labels,
+            aspect=args.plot_aspect,
+            iteration=None,
+            inputs_to_highlight=inputs_to_highlight,
+            **analyzer_info
+        )
+
+
+    analyzer_info["nb_samples"]  = args.nb_samples
+    analyzer_info["eps_padding"] = args.epsilon
+    return stats, analyzer_info
+
+def main_kernelUP(controller, 
+                  dyn,
+                  input_constraint,
+                  args,
+                  num_calls=2):
+    stats = {}
+
+    # Run kernel method
+    if args.estimate_runtime:
+        # Run the analyzer N times to compute an estimated runtime
+        import time
+
+        times = np.empty(num_calls)
+        area_final_errors = np.empty(num_calls)
+        area_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        area_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_final_errors = np.empty(num_calls)
+        haus_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        B_all_conserv = np.empty(num_calls)
+        B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
+        output = []
+        for num in range(num_calls):
+            print('kernelUP call: {}'.format(num))
+
+            UP = kernelUP(dyn, 
+                          controller, 
+                          nb_samples=args.nb_samples,
+                          Lambda=args.Lambda,
+                          sigma=args.sigma)
+
+            t_start = time.time()
+            reachable_set_fns, analyzer_info = UP.get_reachable_set(
+                                                    input_constraint, 
+                                                    args.t_max,
+                                                    seed_id=num
+                                                )
+            t_end = time.time()
+            t = t_end - t_start
+            times[num] = t
+
+            # compute errors
+            errors, B_conservative = UP.get_error(input_constraint, 
+                                                  reachable_set_fns,
+                                                  t_max=args.t_max)
+            (area_final_error, area_avg_error, area_all_error,
+             haus_final_error, haus_avg_error, haus_all_error) = errors
+            B_vec_conservative, B_all_conservative = B_conservative
+            area_final_errors[num] = area_final_error
+            area_avg_errors[num]   = area_avg_error
+            area_all_errors[num]   = area_all_error
+            haus_final_errors[num] = haus_final_error
+            haus_avg_errors[num]   = haus_avg_error
+            haus_all_errors[num]   = haus_all_error
+            B_all_conserv[num]     = B_all_conservative
+            B_vec_conserv[num]     = B_vec_conservative
+            output.append(reachable_set_fns)
+
+        stats['runtimes'] = times
+        stats['area_final_step_errors'] = area_final_errors
+        stats['area_avg_errors']        = area_avg_errors
+        stats['area_all_errors']        = area_all_errors
+        stats['haus_final_step_errors'] = haus_final_errors
+        stats['haus_avg_errors']        = haus_avg_errors
+        stats['haus_all_errors']        = haus_all_errors
+        stats['B_all_conserv']          = B_all_conserv
+        stats['B_vec_conserv']          = B_vec_conserv
+        stats['output_constraints']     = output
+
+    else:
+        UP = kernelUP(dyn, 
+                      controller, 
+                      nb_samples=args.nb_samples,
+                      Lambda=args.Lambda,
+                      sigma=args.sigma)
+        reachable_set_fns, analyzer_info = UP.get_reachable_set(
+                                                input_constraint, 
+                                                args.t_max
+                                            )
+        output = [reachable_set_fns]
+    # End kernelUP
+
+    # plot
+    if args.save_plot:
+        save_dir = "{}/results/examples/".format(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Ugly logic to embed parameters in filename:
+        pars = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    partitioner_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key
+                not in [
+                    "make_animation",
+                    "show_animation",
+                    "type",
+                    "num_partitions",
+                ]
+            ]
+        )
+        pars2 = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    propagator_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key not in ["input_shape", "type"]
+            ]
+        )
+        analyzer_info["save_name"] = (
+            save_dir
+            + args.system
+            + pars
+            + "_"
+            + partitioner_hyperparams["type"]
+            + "_"
+            + propagator_hyperparams["type"]
+            + "_"
+            + "tmax"
+            + "_"
+            + str(round(args.t_max, 1))
+            + "_"
+            + args.boundaries
+            + "_"
+            + str(args.num_polytope_facets)
+        )
+        if len(pars2) > 0:
+            analyzer_info["save_name"] = (
+                analyzer_info["save_name"] + "_" + pars2
+            )
+        analyzer_info["save_name"] = analyzer_info["save_name"] + ".png"
+    if args.show_plot or args.save_plot:
+        UP.visualize(
+            input_constraint,
+            output,
+            show_samples=True,
+            show=args.show_plot,
+            labels=args.plot_labels,
+            aspect=args.plot_aspect,
+            iteration=None,
+            inputs_to_highlight=inputs_to_highlight,
+            **analyzer_info
+        )
+
+
+    analyzer_info["nb_samples"] = args.nb_samples
+    analyzer_info["Lambda"]     = args.Lambda
+    analyzer_info["sigma"]      = args.sigma
+    return stats, analyzer_info
+
+
+
+def main_GoTube(controller, 
+                dyn,
+                input_constraint,
+                args,
+                num_calls=2):
+    stats = {}
+
+    # Run GoTube
+    if args.estimate_runtime:
+        # Run the analyzer N times to compute an estimated runtime
+        import time
+
+        times = np.empty(num_calls)
+        area_final_errors = np.empty(num_calls)
+        area_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        area_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_final_errors = np.empty(num_calls)
+        haus_avg_errors = np.empty(num_calls, dtype=np.ndarray)
+        haus_all_errors = np.empty(num_calls, dtype=np.ndarray)
+        B_all_conserv = np.empty(num_calls)
+        B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
+        output = []
+        for num in range(num_calls):
+            print('GoTube call: {}'.format(num))
+
+            UP = GoTube(dyn, 
+                        controller, 
+                        nb_samples=args.nb_samples,
+                        padding_eps=args.epsilon)
+
+            t_start = time.time()
+            reachable_sets, analyzer_info = UP.get_reachable_set(
+                                                    input_constraint, 
+                                                    args.t_max,
+                                                    seed_id=num
+                                                )
+            t_end = time.time()
+            t = t_end - t_start
+            times[num] = t
+
+            # compute errors
+            errors, B_conservative = UP.get_error(input_constraint, 
+                                                  reachable_sets,
+                                                  t_max=args.t_max)
+            (area_final_error, area_avg_error, area_all_error,
+             haus_final_error, haus_avg_error, haus_all_error) = errors
+            B_vec_conservative, B_all_conservative = B_conservative
+            area_final_errors[num] = area_final_error
+            area_avg_errors[num]   = area_avg_error
+            area_all_errors[num]   = area_all_error
+            haus_final_errors[num] = haus_final_error
+            haus_avg_errors[num]   = haus_avg_error
+            haus_all_errors[num]   = haus_all_error
+            B_all_conserv[num]     = B_all_conservative
+            B_vec_conserv[num]     = B_vec_conservative
+            output.append(reachable_sets)
+
+        stats['runtimes'] = times
+        stats['area_final_step_errors'] = area_final_errors
+        stats['area_avg_errors']        = area_avg_errors
+        stats['area_all_errors']        = area_all_errors
+        stats['haus_final_step_errors'] = haus_final_errors
+        stats['haus_avg_errors']        = haus_avg_errors
+        stats['haus_all_errors']        = haus_all_errors
+        stats['B_all_conserv']          = B_all_conserv
+        stats['B_vec_conserv']          = B_vec_conserv
+        stats['output_constraints']     = output
+
+    else:
+        UP = GoTube(dyn, 
+                    controller,
+                    nb_samples=args.nb_samples,
+                    padding_eps=args.epsilon)
+        reachable_sets, analyzer_info = UP.get_reachable_set(
+                                                input_constraint, 
+                                                args.t_max
+                                            )
+        output = [reachable_sets]
+    # End GoTube
+
+    # plot
+    if args.save_plot:
+        save_dir = "{}/results/examples/".format(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Ugly logic to embed parameters in filename:
+        pars = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    partitioner_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key
+                not in [
+                    "make_animation",
+                    "show_animation",
+                    "type",
+                    "num_partitions",
+                ]
+            ]
+        )
+        pars2 = "_".join(
+            [
+                str(key) + "_" + str(value)
+                for key, value in sorted(
+                    propagator_hyperparams.items(), key=lambda kv: kv[0]
+                )
+                if key not in ["input_shape", "type"]
+            ]
+        )
+        analyzer_info["save_name"] = (
+            save_dir
+            + args.system
+            + pars
+            + "_"
+            + partitioner_hyperparams["type"]
+            + "_"
+            + propagator_hyperparams["type"]
+            + "_"
+            + "tmax"
+            + "_"
+            + str(round(args.t_max, 1))
+            + "_"
+            + args.boundaries
+            + "_"
+            + str(args.num_polytope_facets)
+        )
+        if len(pars2) > 0:
+            analyzer_info["save_name"] = (
+                analyzer_info["save_name"] + "_" + pars2
+            )
+        analyzer_info["save_name"] = analyzer_info["save_name"] + ".png"
+    if args.show_plot or args.save_plot:
+        UP.visualize(
+            input_constraint,
+            output,
+            show_samples=True,
+            show=args.show_plot,
+            labels=args.plot_labels,
+            aspect=args.plot_aspect,
+            iteration=None,
+            inputs_to_highlight=inputs_to_highlight,
+            **analyzer_info
+        )
+
+
+    analyzer_info["nb_samples"]  = args.nb_samples
+    analyzer_info["eps_padding"] = args.epsilon
+    return stats, analyzer_info
+
+
 
 
 def setup_parser():
@@ -336,6 +895,12 @@ def setup_parser():
 
     parser.add_argument(
         "--estimate_runtime", dest="estimate_runtime", action="store_true"
+    )
+    parser.add_argument(
+        "--num_calls",
+        default=2,
+        type=int,
+        help="how many times each alg. should be run to evaluate comp. time (default: 2)",
     )
     parser.set_defaults(estimate_runtime=False)
 
