@@ -1,6 +1,6 @@
 ### About
 
-This repository contains code for the neural network controller experiment (Section 6.2) in our sampling-based reachability analysis paper (T. Lew, L. Janson, R. Bonalli, M. Pavone, ["A Simple and Efficient Sampling-based Algorithmfor General Reachability Analysis"](https://arxiv.org/abs/2112.05745), 2021).
+This repository contains code for the neural network controller experiment (Section 6.2) in our sampling-based reachability analysis paper (T. Lew, L. Janson, R. Bonalli, M. Pavone, ["A Simple and Efficient Sampling-based Algorithm for General Reachability Analysis"](https://arxiv.org/abs/2112.05745), 2021).
 
 This code is based on the work of M. Everett et al, see https://github.com/mit-acl/nn_robustness_analysis which this code is forked from. 
 
