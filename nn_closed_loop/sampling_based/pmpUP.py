@@ -1,5 +1,6 @@
 import numpy as np
 import nn_closed_loop.constraints as constraints
+import nn_closed_loop.dynamics
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.patches import Rectangle
@@ -9,8 +10,13 @@ import os
 from nn_closed_loop.utils.utils import Hausdorff_dist_two_convex_hulls
 from nn_closed_loop.utils.utils import is_hull1_a_subset_of_hull2
 from scipy.spatial import ConvexHull
+from nn_closed_loop.utils.nn_bounds import BoundClosedLoopController
+import torch
 
-class randUP():
+
+
+
+class pmpUP():
     def __init__(self, dynamics, 
                        controller, 
                        nb_samples=1e5, 
@@ -20,13 +26,21 @@ class randUP():
         self.controller  = controller
         self.nb_samples  = nb_samples
         self.padding_eps = padding_eps
+        self.num_states = dynamics.num_states
+        self.num_inputs = dynamics.num_inputs
+        if not(isinstance(dynamics, nn_closed_loop.dynamics.DoubleIntegrator)):
+            raise NotImplementedError
+        if self.num_states != 2:
+            raise NotImplementedError
+        if self.num_inputs != 1:
+            raise NotImplementedError
 
     def get_reachable_set(self, input_constraint, t_max, seed_id=0):
         # Sample reachable states
         dt = self.dynamics.dt
         num_timesteps = int((t_max + dt + np.finfo(float).eps)/dt)
         num_samples = num_timesteps*self.nb_samples
-        xs, us = self.dynamics.collect_data(
+        xs, us = self.dynamics.collect_extremal_data(
             t_max * self.dynamics.dt,
             input_constraint,
             num_samples=num_samples,
@@ -40,34 +54,28 @@ class randUP():
         reachable_sets = []
         for t in range(num_timesteps-1):
             # Convex hull
-            hull = ConvexHull(xs[:,t+1,:]) # last dim is state dim.
-
+            hull = ConvexHull(xs[:, t+1, :]) # last dim is state dim.
             if self.padding_eps>0:
                 if xs.shape[-1] == 2:
                     # Points on circle
                     r        = self.padding_eps
                     thetas   = np.arange(0, 2*np.pi, 0.1)
-                    pts_ball = np.concatenate((r*np.cos(thetas)[:,np.newaxis], 
-                                               r*np.sin(thetas)[:,np.newaxis]), 
+                    pts_ball = np.concatenate((r*np.cos(thetas)[:, np.newaxis], 
+                                               r*np.sin(thetas)[:, np.newaxis]), 
                                               axis=1)
                     # Note that directly epsilon-padding the reachable set estimates
                     # is not strictly necessary --- e.g., for trajectory optimization,
                     # one could simply pad all constraints by epsilon and use the 
-                    # unpadded (epsilon=0) reachable set estimate from RandUP. 
+                    # unpadded (epsilon=0) reachable set estimate from pmpUP. 
                 else:
                     raise NotImplementedError("eps-padding not implemented for n_x > 2.")
-
                 # Epsilon-padded convex hull
                 pts  = xs[hull.vertices,t+1,:2]
                 N, M = pts.shape[0], len(thetas)
                 pts  = np.tile(pts.T, M).T + np.tile(pts_ball.T, N).T # Minkowski sum
                 hull = ConvexHull(pts)
-
             # save result
             reachable_sets.append(hull)
-
-
-
         info = {}
         # return output_constraint, info
         return reachable_sets, info
@@ -111,7 +119,7 @@ class randUP():
 
             # check if conservative outer approximation
             # using the monte-carlo method to validate
-            # our proposed approach
+            # Algorithm 1 and the theory
             true_hull_mc = ConvexHull(true_hull_mc.points[true_hull_mc.vertices,:2])
             haus_dist_mc = Hausdorff_dist_two_convex_hulls(true_hull_mc, estimated_hull)
             B_conservative = is_hull1_a_subset_of_hull2(true_hull_mc, estimated_hull)
@@ -172,23 +180,22 @@ class randUP():
             self.plot_2d = False
             self.linewidth = 1
 
-        print("[randup::plot_reachable_sets] plotting")
+        print("[pmpUP::plot_reachable_sets] plotting")
 
         for t, hull in enumerate(reachable_sets):
             if t < t_max:
                 pts = hull.points[hull.vertices,:2]
                 pts = np.append(pts, pts[0,:][np.newaxis,:], axis=0)
-
                 if B_show_label and t==0:
                     ax.plot(pts[:,0], 
                             pts[:,1], 
                             lw=2, # 5,
-                            color="tab:orange",#reachable_set_color, 
-                            label="RandUP",
+                            color="tab:blue",
+                            label="Algorithm 1",
                             linestyle='dashed')
                 else:
                     ax.plot(pts[:,0], 
                             pts[:,1], 
                             lw=2, # 5,
-                            color="tab:orange",#reachable_set_color, 
+                            color="tab:blue",
                             linestyle='dashed')

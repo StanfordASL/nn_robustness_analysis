@@ -2,6 +2,7 @@ import numpy as np
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+import torch
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import model_from_json
@@ -58,7 +59,6 @@ def load_controller(name="double_integrator_mpc"):
     torch_model = keras2torch(model, "torch_model")
     return torch_model
 
-
 def load_controller_unity(nx, nu):
     name = "unity"
     path = "{}/../../models/{}".format(dir_path, name)
@@ -76,6 +76,14 @@ def load_controller_unity(nx, nu):
 
     return torch_model
 
+def replace_relus_to_softplus(model):
+    def replace_layers(model, old, new):
+        for n, module in model.named_children():
+            if len(list(module.children())) > 0:
+                replace_layers(module, old, new)
+            if isinstance(module, old):
+                setattr(model, n, new)
+    replace_layers(model, torch.nn.ReLU, torch.nn.Softplus(beta=100))
 
 def plot_data(xs, us, system):
 

@@ -226,6 +226,8 @@ class ClosedLoopPartitioner(partitioners.Partitioner):
 
         # # Reachable sets
         # self.plot_reachable_sets(output_constraint, input_dims)
+        # self.animate_axes.set_xlim((-1, 3))
+        # self.animate_axes.set_ylim((-1, 0.2))
 
     def visualize(self, M, interior_M, output_constraint, iteration=0, title=None, reachable_set_color=None, reachable_set_zorder=None, reachable_set_ls=None, dont_tighten_layout=False, B_show_label=False, label="Formal"):
 
@@ -269,11 +271,22 @@ class ClosedLoopPartitioner(partitioners.Partitioner):
         if reachable_set_ls is None:
             reachable_set_ls = "-"
         fc_color = "None"
-        constraint.plot(self.animate_axes, dims, reachable_set_color, fc_color=fc_color, zorder=reachable_set_zorder, plot_2d=self.plot_2d, linewidth=self.linewidth, ls=reachable_set_ls)
+        constraint.plot(
+            self.animate_axes,
+            dims,
+            reachable_set_color,
+            fc_color=fc_color,
+            zorder=reachable_set_zorder,
+            plot_2d=self.plot_2d,
+            linewidth=2,
+            ls=reachable_set_ls)
         if B_show_label:
-            plt.plot([0,1e-5], [0,1e-5], 
-                     color=reachable_set_color, ls=reachable_set_ls,
-                     label=label)
+            plt.plot(
+                [0,1e-5], [0,1e-5],
+                color=reachable_set_color,
+                lw=2,
+                ls=reachable_set_ls,
+                label=label)
 
     # def plot_partition(self, constraint, bounds, dims, color):
     def plot_partition(self, constraint, dims, color):

@@ -23,6 +23,10 @@ results/
 
 /venv
 
+
+crown_ibp/crown-ibp_models/
+crown_ibp/torch_model
+
 nn_closed_loop/models/double_integrator_mpc
 nn_closed_loop/models/quadrotor
 nn_closed_loop/models/quadrotor_small

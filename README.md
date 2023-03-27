@@ -1,5 +1,21 @@
 ### About
 
+This repository contains code to reproduce the neural feedback loop analysis experiment (Section V.A) from our paper on convex hull reachability analysis under disturbances (T. Lew, R. Bonalli, M. Pavone, ["Exact characterization of the convex hulls of reachable sets"](https://arxiv.org/abs/2112.05745), 2023).
+
+![continuous_time_reachability](/docs/continuous_time_reachability.jpg)
+
+This code is a branch of the fork at https://github.com/StanfordASL/nn_robustness_analysis of https://github.com/mit-acl/nn_robustness_analysis with minor modifications. This branch only supports the experiments of the paper and changes may break previous functionalities (for those, please revert to the RandUP branch). This code supports (a) 2d integrator system, (b) continuous-time reachability problem with fixed initial state under disturbances, (c) ReachLP, RandUP, and Algorithm 1 (see pmpUP.py and Dynamics.py), (d) ReLU activations are automatically replaced with SoftPlus activations (see crown_ibp/crown_ibp/bound_layers.py). We refer to the paper for further details.
+
+To reproduce results, run:
+```bash
+python -m nn_closed_loop.experiments_with_disturbances
+```
+
+For installation instructions, see the previous instructions below.
+
+
+### About main nn_robustness_analysis branch (see https://github.com/StanfordASL/nn_robustness_analysis)
+
 This repository contains code for the neural network controller experiment (Section 6.2) in our sampling-based reachability analysis paper (T. Lew, L. Janson, R. Bonalli, M. Pavone, ["A Simple and Efficient Sampling-based Algorithm for General Reachability Analysis"](https://arxiv.org/abs/2112.05745), 2021).
 
 This code is based on the work of M. Everett et al, see https://github.com/mit-acl/nn_robustness_analysis which this code is forked from. 
@@ -18,7 +34,6 @@ python -m nn_closed_loop.experiments_randUP_reachableSets_plots
 ```
 
 The installation of all dependencies is described below, please also see https://github.com/mit-acl/nn_robustness_analysis.
-
 
 
 ### About nn_robustness_analysis (forked from mit-acl/nn_robustness_analysis)
@@ -81,7 +96,7 @@ source venv/bin/activate
 
 Install the various python packages in this repo:
 ```bash
-python -m pip install -e crown_ibp 
+# python -m pip install -e crown_ibp 
 python -m pip install -e auto_LiRPA
 python -m pip install -e robust_sdp
 python -m pip install -e nn_partition

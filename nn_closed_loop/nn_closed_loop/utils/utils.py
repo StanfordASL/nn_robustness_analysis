@@ -72,8 +72,7 @@ def is_in_convex_hull(p, hull):
     """
     if not isinstance(hull,Delaunay):
         hull = Delaunay(hull)
-
-    return hull.find_simplex(p)>=0
+    return hull.find_simplex(p)>=-1e-3
 def is_hull1_a_subset_of_hull2(hull_1, hull_2):
     pts_1 = hull_1.points[hull_1.vertices,:]
     hull_2_delaunay = Delaunay(hull_2.points)

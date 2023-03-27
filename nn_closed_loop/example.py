@@ -1,11 +1,11 @@
 import numpy as np
 import nn_closed_loop.sampling_based.randUP as randUP
-import nn_closed_loop.sampling_based.kernelUP as kernelUP
-import nn_closed_loop.sampling_based.GoTube as GoTube
+import nn_closed_loop.sampling_based.pmpUP as pmpUP
 import nn_closed_loop.dynamics as dynamics
 import nn_closed_loop.analyzers as analyzers
 import nn_closed_loop.constraints as constraints
 from nn_closed_loop.utils.nn import load_controller, load_controller_unity
+from nn_closed_loop.utils.nn import replace_relus_to_softplus
 from nn_closed_loop.utils.utils import (
     range_to_polytope,
     get_polytope_A,
@@ -20,8 +20,7 @@ def main(args):
     print("[example.py::main] Running each alg. num_calls =", num_calls, "times.")
     # Load NN control policy
     controller = load_controller(name=args.controller_model)
-    # [Lew] If you get an error with Keras, try running
-    # pip install 'h5py==2.10.0' --force-reinstall 
+    replace_relus_to_softplus(controller)
 
     # Dynamics
     if args.system == "double_integrator":
@@ -34,77 +33,13 @@ def main(args):
         else:
             dyn = dynamics.DoubleIntegratorOutputFeedback()
         if args.init_state_range is None:
-            init_state_range = np.array(
-                [  # (num_inputs, 2)
-                    [2.5, 3.0],  # x0min, x0max
-                    [-0.25, 0.25],  # x1min, x1max
-                ]
-            )
+            raise NotImplementedError
         else:
             import ast
 
             init_state_range = np.array(
                 ast.literal_eval(args.init_state_range)
             )
-    elif args.system == "quadrotor":
-        inputs_to_highlight = [
-            {"dim": [0], "name": "$x$"},
-            {"dim": [1], "name": "$y$"},
-            {"dim": [2], "name": "$z$"},
-        ]
-        if args.state_feedback:
-            dyn = dynamics.Quadrotor()
-        else:
-            dyn = dynamics.QuadrotorOutputFeedback()
-        if args.init_state_range is None:
-            init_state_range = np.array(
-                [  # (num_inputs, 2)
-                    [4.65, 4.65, 2.95, 0.94, -0.01, -0.01],
-                    [4.75, 4.75, 3.05, 0.96, 0.01, 0.01],
-                ]
-            ).T
-        else:
-            import ast
-
-            init_state_range = np.array(
-                ast.literal_eval(args.init_state_range)
-            )
-    elif args.system == "duffing":
-        inputs_to_highlight = [
-            {"dim": [0], "name": "$x_0$"},
-            {"dim": [1], "name": "$x_1$"},
-        ]
-        dyn = dynamics.Duffing()
-        init_state_range = np.array(
-            [  # (num_inputs, 2)
-                [2.45, 2.55],  # x0min, x0max 
-                [1.45, 1.55],  # x1min, x1max
-            ]
-        )
-    elif args.system == "iss":
-        inputs_to_highlight = [
-            {"dim": [0], "name": "$x_0$"},
-            {"dim": [1], "name": "$x_1$"},
-        ]
-        dyn = dynamics.ISS()
-        init_state_range = 100 * np.ones((dyn.n, 2))
-        init_state_range[:, 0] = init_state_range[:, 0] - 0.5
-        init_state_range[:, 1] = init_state_range[:, 1] + 0.5
-    elif args.system == "unity":
-        inputs_to_highlight = [
-            {"dim": [0], "name": "$x$"},
-            {"dim": [1], "name": "$y$"},
-        ]
-        dyn = dynamics.Unity(args.nx, args.nu)
-        if args.init_state_range is None:
-            init_state_range = np.vstack([-np.ones(args.nx), np.ones(args.nx)]).T
-        else:
-            import ast
-
-            init_state_range = np.array(
-                ast.literal_eval(args.init_state_range)
-            )
-        controller = load_controller_unity(args.nx, args.nu)
     else:
         raise NotImplementedError
 
@@ -136,29 +71,21 @@ def main(args):
 
         if args.randUP:
             # Run randUP + plotting
-            stats, analyzer_info = main_randUP(controller, 
-                                               dyn,
-                                               input_constraint,
-                                               args,
-                                               num_calls=num_calls)
+            stats, analyzer_info = main_randUP(
+                controller, 
+                dyn,
+                input_constraint,
+                args,
+                num_calls=num_calls)
             return stats, analyzer_info
-        elif args.kernelUP:
-            # Run kernel method + plotting
-            stats, analyzer_info = main_kernelUP(controller, 
-                                               dyn,
-                                               input_constraint,
-                                               args,
-                                               num_calls=5)
+        elif args.pmpUP:
+            # Run randUP + plotting
+            stats, analyzer_info = main_pmpUP(controller,
+                dyn,
+                input_constraint,
+                args,
+                num_calls=num_calls)
             return stats, analyzer_info
-        elif args.GoTube:
-            # Run GoTube method + plotting
-            stats, analyzer_info = main_GoTube(controller, 
-                                               dyn,
-                                               input_constraint,
-                                               args,
-                                               num_calls=num_calls)
-            return stats, analyzer_info
-
         else:
             raise NotImplementedError("Unknown RA method.")
 
@@ -276,18 +203,7 @@ def main_formal_method(controller,
         output_constraint, analyzer_info = analyzer.get_reachable_set(
             input_constraint, output_constraint, t_max=args.t_max
         )
-
-    # if args.estimate_error:
-    #     errors = analyzer.get_error(input_constraint, 
-    #                                 output_constraint,
-    #                                 t_max=args.t_max)
-    #     (final_area_error, avg_area_error, all_area_error,
-    #      final_haus_error, avg_haus_error, all_haus_error) = errors
-    #     area_final_errors = final_area_error
-    #     area_avg_errors   = avg_area_error
-    #     area_all_errors   = all_area_error
-    #     # print('Final step approximation error:{:.2f}\nAverage approximation error: {:.2f}\nAll errors: {}'.format(final_area_error, avg_area_error, all_area_error))
-
+        
     if args.save_plot:
         save_dir = "{}/results/examples/".format(
             os.path.dirname(os.path.abspath(__file__))
@@ -363,7 +279,6 @@ def main_randUP(controller,
                 args,
                 num_calls=2):
     stats = {}
-
 
     # Run randUP
     if args.estimate_runtime:
@@ -510,171 +425,14 @@ def main_randUP(controller,
     analyzer_info["eps_padding"] = args.epsilon
     return stats, analyzer_info
 
-def main_kernelUP(controller, 
-                  dyn,
-                  input_constraint,
-                  args,
-                  num_calls=2):
-    stats = {}
-
-    # Run kernel method
-    if args.estimate_runtime:
-        # Run the analyzer N times to compute an estimated runtime
-        import time
-
-        times = np.empty(num_calls)
-        area_final_errors = np.empty(num_calls)
-        area_avg_errors = np.empty(num_calls, dtype=np.ndarray)
-        area_all_errors = np.empty(num_calls, dtype=np.ndarray)
-        haus_final_errors = np.empty(num_calls)
-        haus_avg_errors = np.empty(num_calls, dtype=np.ndarray)
-        haus_all_errors = np.empty(num_calls, dtype=np.ndarray)
-        B_all_conserv = np.empty(num_calls)
-        B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
-        output = []
-        for num in range(num_calls):
-            print('kernelUP call: {}'.format(num))
-
-            UP = kernelUP(dyn, 
-                          controller, 
-                          nb_samples=args.nb_samples,
-                          Lambda=args.Lambda,
-                          sigma=args.sigma)
-
-            t_start = time.time()
-            reachable_set_fns, analyzer_info = UP.get_reachable_set(
-                                                    input_constraint, 
-                                                    args.t_max,
-                                                    seed_id=num
-                                                )
-            t_end = time.time()
-            t = t_end - t_start
-            times[num] = t
-
-            # compute errors
-            errors, B_conservative = UP.get_error(input_constraint, 
-                                                  reachable_set_fns,
-                                                  t_max=args.t_max)
-            (area_final_error, area_avg_error, area_all_error,
-             haus_final_error, haus_avg_error, haus_all_error) = errors
-            B_vec_conservative, B_all_conservative = B_conservative
-            area_final_errors[num] = area_final_error
-            area_avg_errors[num]   = area_avg_error
-            area_all_errors[num]   = area_all_error
-            haus_final_errors[num] = haus_final_error
-            haus_avg_errors[num]   = haus_avg_error
-            haus_all_errors[num]   = haus_all_error
-            B_all_conserv[num]     = B_all_conservative
-            B_vec_conserv[num]     = B_vec_conservative
-            output.append(reachable_set_fns)
-
-        stats['runtimes'] = times
-        stats['area_final_step_errors'] = area_final_errors
-        stats['area_avg_errors']        = area_avg_errors
-        stats['area_all_errors']        = area_all_errors
-        stats['haus_final_step_errors'] = haus_final_errors
-        stats['haus_avg_errors']        = haus_avg_errors
-        stats['haus_all_errors']        = haus_all_errors
-        stats['B_all_conserv']          = B_all_conserv
-        stats['B_vec_conserv']          = B_vec_conserv
-        stats['output_constraints']     = output
-
-    else:
-        UP = kernelUP(dyn, 
-                      controller, 
-                      nb_samples=args.nb_samples,
-                      Lambda=args.Lambda,
-                      sigma=args.sigma)
-        reachable_set_fns, analyzer_info = UP.get_reachable_set(
-                                                input_constraint, 
-                                                args.t_max
-                                            )
-        output = [reachable_set_fns]
-    # End kernelUP
-
-    # plot
-    if args.save_plot:
-        save_dir = "{}/results/examples/".format(
-            os.path.dirname(os.path.abspath(__file__))
-        )
-        os.makedirs(save_dir, exist_ok=True)
-
-        # Ugly logic to embed parameters in filename:
-        pars = "_".join(
-            [
-                str(key) + "_" + str(value)
-                for key, value in sorted(
-                    partitioner_hyperparams.items(), key=lambda kv: kv[0]
-                )
-                if key
-                not in [
-                    "make_animation",
-                    "show_animation",
-                    "type",
-                    "num_partitions",
-                ]
-            ]
-        )
-        pars2 = "_".join(
-            [
-                str(key) + "_" + str(value)
-                for key, value in sorted(
-                    propagator_hyperparams.items(), key=lambda kv: kv[0]
-                )
-                if key not in ["input_shape", "type"]
-            ]
-        )
-        analyzer_info["save_name"] = (
-            save_dir
-            + args.system
-            + pars
-            + "_"
-            + partitioner_hyperparams["type"]
-            + "_"
-            + propagator_hyperparams["type"]
-            + "_"
-            + "tmax"
-            + "_"
-            + str(round(args.t_max, 1))
-            + "_"
-            + args.boundaries
-            + "_"
-            + str(args.num_polytope_facets)
-        )
-        if len(pars2) > 0:
-            analyzer_info["save_name"] = (
-                analyzer_info["save_name"] + "_" + pars2
-            )
-        analyzer_info["save_name"] = analyzer_info["save_name"] + ".png"
-    if args.show_plot or args.save_plot:
-        UP.visualize(
-            input_constraint,
-            output,
-            show_samples=True,
-            show=args.show_plot,
-            labels=args.plot_labels,
-            aspect=args.plot_aspect,
-            iteration=None,
-            inputs_to_highlight=inputs_to_highlight,
-            **analyzer_info
-        )
-
-
-    analyzer_info["nb_samples"] = args.nb_samples
-    analyzer_info["Lambda"]     = args.Lambda
-    analyzer_info["sigma"]      = args.sigma
-    return stats, analyzer_info
-
-
-
-def main_GoTube(controller, 
+def main_pmpUP(controller, 
                 dyn,
                 input_constraint,
                 args,
                 num_calls=2):
     stats = {}
 
-    # Run GoTube
+    # Run pmpUP
     if args.estimate_runtime:
         # Run the analyzer N times to compute an estimated runtime
         import time
@@ -690,9 +448,9 @@ def main_GoTube(controller,
         B_vec_conserv = np.empty(num_calls, dtype=np.ndarray)
         output = []
         for num in range(num_calls):
-            print('GoTube call: {}'.format(num))
+            print('pmpUP call: {}'.format(num))
 
-            UP = GoTube(dyn, 
+            UP = pmpUP(dyn, 
                         controller, 
                         nb_samples=args.nb_samples,
                         padding_eps=args.epsilon)
@@ -736,7 +494,7 @@ def main_GoTube(controller,
         stats['output_constraints']     = output
 
     else:
-        UP = GoTube(dyn, 
+        UP = pmpUP(dyn, 
                     controller,
                     nb_samples=args.nb_samples,
                     padding_eps=args.epsilon)
@@ -745,7 +503,7 @@ def main_GoTube(controller,
                                                 args.t_max
                                             )
         output = [reachable_sets]
-    # End GoTube
+    # End pmpUP
 
     # plot
     if args.save_plot:
@@ -818,8 +576,6 @@ def main_GoTube(controller,
     analyzer_info["nb_samples"]  = args.nb_samples
     analyzer_info["eps_padding"] = args.epsilon
     return stats, analyzer_info
-
-
 
 
 def setup_parser():

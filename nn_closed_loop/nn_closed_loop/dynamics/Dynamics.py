@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 from nn_closed_loop.utils.nn_bounds import BoundClosedLoopController
+import nn_closed_loop
 import nn_closed_loop.constraints as constraints
 import torch
 import os
@@ -12,6 +13,44 @@ from scipy.spatial import ConvexHull
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
+
+
+def sample_pts_unit_ball(dim, NB_pts):
+    """
+    Uniformly samples points in a d-dimensional sphere (in a ball)
+    Points characterized by    ||x||_2 < 1
+    arguments:  dim    - nb of dimensions
+                NB_pts - nb of points
+    output:     pts    - points sampled uniformly in ball [xdim x NB_pts]
+    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
+    """
+    us    = np.random.normal(0,1,(dim,NB_pts))
+    norms = np.linalg.norm(us, 2, axis=0)
+    rs    = np.random.random(NB_pts)**(1.0/dim)
+    pts   = rs*us / norms
+    return pts
+
+def sample_pts_unit_sphere(dim, NB_pts, random=True):
+    """
+    Uniformly samples points on a d-dimensional sphere (boundary of a ball)
+    Points characterized by    ||x||_2 = 1
+    arguments:  dim    - nb of dimensions
+                NB_pts - nb of points
+                random - True: Uniform sampling. 
+                         False: Uniform deterministic grid 
+    output:     pts    - points on the boundary of the sphere [xdim x NB_pts]
+    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
+    """
+    if dim == 2 and random == False:
+        angles = np.linspace(0., 2*np.pi, num=NB_pts, endpoint=False)
+        pts = np.array([np.cos(angles), np.sin(angles)])
+        return pts
+    if random == False and dim > 2:
+        raise ValueError("sample_pts_unit_sphere: non random sampling not implemented")
+    u = np.random.normal(0, 1, (dim, NB_pts))
+    d = np.sum(u**2, axis=0) **(0.5)
+    pts = u/d
+    return pts
 
 class Dynamics:
     def __init__(
@@ -45,6 +84,19 @@ class Dynamics:
 
         self.dt = dt
 
+        # functions for generating extremal trajectories
+        if not(isinstance(self, nn_closed_loop.dynamics.DoubleIntegrator)):
+            raise NotImplementedError
+        if self.num_states != 2:
+            raise NotImplementedError
+        if self.num_inputs != 1:
+            raise NotImplementedError
+        noise_magnitude = process_noise[0, 1] # infinity norm
+        # ||w||_2 <= sqrt(state_dim) * ||w||_\infty
+        # Note: self.w_ball_radius already accounts for dt,
+        # see DoubleIntegrator.py
+        self.w_ball_radius = np.sqrt(self.num_states) * noise_magnitude
+
     def control_nn(self, x, model):
         if x.ndim == 1:
             batch_x = np.expand_dims(x, axis=0)
@@ -74,7 +126,6 @@ class Dynamics:
         self, input_constraint, t_max=5, num_samples=1000, controller="mpc",
         output_constraint=None
     ):
-
         xs, us = self.collect_data(
             t_max,
             input_constraint,
@@ -82,9 +133,7 @@ class Dynamics:
             controller=controller,
             merge_cols=False,
         )
-
         num_runs, num_timesteps, num_states = xs.shape
-
         if isinstance(input_constraint, constraints.PolytopeConstraint):
             # hack: just return all the sampled pts for error calculator
             sampled_range = xs
@@ -100,21 +149,33 @@ class Dynamics:
                 sampled_range[t - 1, :, 1] = np.max(xs[:, t, :], axis=0)
         else:
             raise NotImplementedError
-
         return sampled_range
 
-    def get_sampled_convex_hull(self, 
-                                input_constraint, 
-                                t_max=5, 
-                                num_samples=10**6, 
-                                controller="mpc"):
-        xs, us = self.collect_data(
-            t_max,
-            input_constraint,
-            num_samples=num_samples,
-            controller=controller,
-            merge_cols=False,
-        )
+    def get_sampled_convex_hull(self,
+        input_constraint, 
+        t_max=5, 
+        num_samples=2*10**6, 
+        controller="mpc",
+        method="monte_carlo"):
+        if method=="monte_carlo":
+            xs, us = self.collect_data(
+                t_max,
+                input_constraint,
+                num_samples=num_samples,
+                controller=controller,
+                merge_cols=False,
+            )
+        elif method=="extremal":
+            num_samples = 10**4
+            xs, us = self.collect_extremal_data(
+                t_max,
+                input_constraint,
+                num_samples=num_samples,
+                controller=controller,
+                merge_cols=False,
+            )
+        else:
+            raise NotImplementedError
         num_runs, num_timesteps, num_states = xs.shape
 
         hulls = []
@@ -122,8 +183,6 @@ class Dynamics:
             hull = ConvexHull(xs[:,t,:2])
             hulls.append(hull)
         return hulls
-
-
 
     def show_samples(
         self,
@@ -159,7 +218,7 @@ class Dynamics:
             ax.scatter(
                 *[xs[:, t, i] for i in input_dims],
                 color=(0.3,0.3,0.3),#colors[t],
-                s=1,
+                s=0.5,
                 zorder=zorder,
             )
 
@@ -316,6 +375,7 @@ class Dynamics:
             elif isinstance(
                 controller, BoundClosedLoopController
             ) or isinstance(controller, torch.nn.Sequential):
+                # print("controller =", controller)
                 u = self.control_nn(x=obs, model=controller)
             else:
                 raise NotImplementedError
@@ -336,6 +396,150 @@ class Dynamics:
         else:
             return xs, us
 
+    def project(self, v, u):
+        # projection onto the tangent space of the sphere
+        # of radius $||v||$.
+        u_projected = u - np.dot(v, u) * v
+        return u_projected
+
+    def project_batched(self, vs, us):
+        us_projected = us - (np.einsum('Mi,Mi->M', vs, us) * vs.T).T
+        return us_projected
+
+    def n_W(self, w):
+        # outward-pointing normal vector of 
+        # $\partial\mathcal{W}$ at $w$
+        normal_vector = w / np.linalg.norm(w)
+        return normal_vector
+
+    def n_W_batched(self, ws):
+        # ws - (M, num_states)
+        # outward-pointing normal vector of 
+        # $\partial\mathcal{W}$ at $w$
+        normal_vectors = (ws.T / np.linalg.norm(ws, axis=1)).T
+        return normal_vectors
+
+    def n_W_inverse(self, n):
+        # w\in\partial\mathcal{W}$ such that n_w(w)=n
+        w = self.w_ball_radius * n
+        return w
+
+    def n_W_inverse_batched(self, ns):
+        # w\in\partial\mathcal{W}$ such that n_w(w)=n
+        ws = self.w_ball_radius * ns
+        return ws
+
+    def pmp_disturbances_ws_from_qs(self, qs):
+        return self.n_W_inverse_batched(qs)
+
+    def collect_extremal_data(
+        self,
+        t_max,
+        input_constraint,
+        num_samples=2420,
+        controller="mpc",
+        merge_cols=True,
+        seed_id=0,
+    ):
+        np.random.seed(seed_id)
+        if not(isinstance(self, nn_closed_loop.dynamics.DoubleIntegrator)):
+            raise NotImplementedError
+        if self.num_states != 2:
+            raise NotImplementedError
+        if self.num_inputs != 1:
+            raise NotImplementedError
+
+        dt = self.dt
+        num_timesteps = int(
+            (t_max + dt + np.finfo(float).eps) / dt
+        )
+
+        # dynamics are those of the double integrator
+        dyns_dt = 0.25
+        A_ct = np.array([[0, 1.], [0, 0]])
+        b_ct = np.array([[0.5 * dyns_dt], [1]])
+        A_dt = np.eye(2) + dyns_dt * A_ct
+        b_dt = dyns_dt * b_ct
+        
+        num_samples = int(num_samples / num_timesteps)
+        xs = np.zeros((num_samples, num_timesteps, self.num_states)) # states
+        qs = np.zeros((num_samples, num_timesteps, self.num_states)) # augmented states
+        us = np.zeros((num_samples, num_timesteps, self.num_inputs)) # controls
+
+        # Initial state
+        if isinstance(input_constraint, constraints.LpConstraint):
+            if input_constraint.p == np.inf:
+                xs[:, 0, :] = np.random.uniform(
+                    low=input_constraint.range[:, 0],
+                    high=input_constraint.range[:, 1],
+                    size=(num_samples, self.num_states),
+                )
+            else:
+                raise NotImplementedError
+        # Initial values of the disturbances
+        thetas = np.linspace(0, 2*np.pi, num_samples)
+        w0s_x = self.w_ball_radius * np.cos(thetas)
+        w0s_y = self.w_ball_radius * np.sin(thetas)
+        w0s = np.stack((w0s_x, w0s_y)).T # (num_samples, 2)
+        # Initial augmented state
+        qs[:, 0, :] = self.n_W_batched(w0s)
+
+        t = 0
+        step = 0
+        while t < t_max:
+            xs_t, qs_t = xs[:, step, :], qs[:, step, :]
+            xs_t_tensor = torch.as_tensor(xs_t, dtype=torch.float32)
+            xs_t_tensor.requires_grad = True
+            ws_t = self.pmp_disturbances_ws_from_qs(qs_t)
+            # Note: pmp_disturbances_ws_from_qs already accounts for dt
+
+            # get control
+            if isinstance(
+                controller, BoundClosedLoopController
+            ) or isinstance(controller, torch.nn.Sequential):
+                us_t = controller.forward(xs_t_tensor)
+                # this works since each ith entry of us_t (where i=1,...,num_samples)
+                # only depends on the ith entry of xs_t_tensor 
+                # and also since the control inputs are scalar, otherwise we would
+                # need to loop over the number of control inputs
+                us_t_dx = torch.cat(
+                    torch.autograd.grad(us_t.sum(), xs_t_tensor, 
+                    retain_graph=True))
+                us_t_dx = us_t_dx[:, None, :] # scalar control input
+                us_t = torch.clip(us_t, 
+                    min=self.u_limits[0, 0], 
+                    max=self.u_limits[0, 1])
+            else:
+                raise NotImplementedError
+            us_t = us_t.data.numpy() # (num_samples, 1)
+            us_t_dx = us_t_dx.data.numpy() # (num_samples, 1, 2)
+    
+            xs_next = (np.dot(A_dt, xs_t.T) + np.dot(b_dt, us_t.T)).T
+            xs_next = xs_next + ws_t # note: ws_t already have dt included
+
+            # chain rule to get Jacobian of f_dynamics(x, neural_net(x))
+            fs_dx_times_qs = (np.einsum('xy,Mx->My', A_ct, qs_t) + 
+               np.einsum('Mxy,Mx->My', np.einsum('xu,Muy->Mxy', b_ct, us_t_dx), qs_t))
+            qs_dot = -self.project_batched(qs_t, fs_dx_times_qs)
+            qs_next = qs_t + dyns_dt * qs_dot
+
+            # project qs onto the sphere (a retraction)
+            # alternatively, we could use the exponential map
+            qs_next = (qs_next.T / np.linalg.norm(qs_next, axis=1)).T
+
+            # save data
+            xs[:, step + 1, :] = xs_next
+            qs[:, step + 1, :] = qs_next
+            us[:, step, :] = us_t
+            step += 1
+            t += dt + np.finfo(float).eps
+
+        if merge_cols:
+            return xs.reshape(-1, self.num_states), us.reshape(
+                -1, self.num_inputs
+            )
+        else:
+            return xs, us
 
 class ContinuousTimeDynamics(Dynamics):
     def __init__(
@@ -385,11 +589,8 @@ class DiscreteTimeDynamics(Dynamics):
     def dynamics_step(self, xs, us):
         xs_t1 = (np.dot(self.At, xs.T) + np.dot(self.bt, us.T)).T + self.ct
         if self.process_noise is not None:
-            noise = np.random.uniform(
-                low=self.process_noise[:, 0],
-                high=self.process_noise[:, 1],
-                size=xs.shape,
-            )
+            noise = sample_pts_unit_ball(xs.shape[1], xs.shape[0]).T # (M, x_dim)
+            noise *= np.sqrt(xs.shape[1]) * self.process_noise[0, 1]
             xs_t1 += noise
         return xs_t1
 
