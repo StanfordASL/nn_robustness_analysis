@@ -1,6 +1,6 @@
 ### About
 
-This repository contains code to reproduce the neural feedback loop analysis experiment (Section V.A) from our paper on convex hull reachability analysis under disturbances (T. Lew, R. Bonalli, M. Pavone, ["Exact characterization of the convex hulls of reachable sets"](https://arxiv.org/abs/2112.05745), 2023).
+This repository contains code to reproduce the neural feedback loop analysis experiment (Section V.A) from our paper on convex hull reachability analysis under disturbances (T. Lew, R. Bonalli, M. Pavone, ["Exact characterization of the convex hulls of reachable sets"](https://arxiv.org/abs/2303.17674), 2023).
 
 ![continuous_time_reachability](/docs/continuous_time_reachability.jpg)
 
