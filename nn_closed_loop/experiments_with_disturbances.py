@@ -791,24 +791,26 @@ class NNVerifExperiment(Experiment):
         # --------------------------------------------------
 
         fig = plt.figure(figsize=(6.4,5))
-        plt.plot(M_randUP_vec, dH_randUP_vec, c='tab:orange', label=r'RandUP', linewidth=2)
-        plt.plot(M_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', label=r'Algorithm 1', linewidth=2)
+        M_reachLP_vec = np.array([
+            np.minimum(np.min(M_randUP_vec), np.min(M_pmpUP_vec)), 
+            np.maximum(np.max(M_randUP_vec), np.max(M_pmpUP_vec))])
+        plt.plot(M_reachLP_vec, dH_ReachLP_noSplit_lp*np.ones(2), 
+                    c='tab:green', linestyle=(0, (3,3)), label=r'ReachLP', linewidth=3)
+        plt.plot(M_randUP_vec, dH_randUP_vec, c='tab:orange', label=r'RandUP', linewidth=3)
+        plt.plot(M_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', label=r'Algorithm 1', linewidth=3)
 
-        plt.xlabel(r'Num. samples $M$', fontsize=30)
-        # plt.ylabel(r'$d_H(H(\mathcal{X}_T),\hat{H}(\mathcal{X}_T)\,)$', fontsize=30))
-        plt.ylabel(r'Estimation error', fontsize=30)
+        plt.legend(fontsize=30, loc='center right', #bbox_to_anchor=(0.1, 0.3), 
+                    labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
+        plt.xlabel(r'Sample Size $M$', fontsize=30)
+        plt.ylabel(r'Estimation Error', fontsize=30)
         plt.xticks(fontsize=28)
         plt.yticks(fontsize=28)
-        # plt.gca().axes.xaxis.set_ticklabels([1e-4, 1e-3, 1e-2, 1e-1, 1e0])
-        # plt.gca().set_yticklabels([1e-4, 1e-3, 1e-2, 1e-1, 1e0])
         plt.gca().set_xscale('log')
         plt.gca().set_yscale('log')
         plt.grid(which='minor', alpha=0.5, linestyle='--')
         plt.grid(which='major', alpha=0.75, linestyle=':')
-        plt.subplots_adjust(left=0.21, bottom=0.250, right=0.962, top=0.975, wspace=0.2, hspace=0.2)
-        plt.ylim(7e-5,1.3)
-        plt.legend(fontsize=30, loc='center right', #bbox_to_anchor=(0.1, 0.3), 
-                    labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
+        plt.ylim(9e-5,1.3)
+        plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.98, wspace=0.2, hspace=0.2)
         plt.savefig(self.filename+"_dH.png")
         # plt.show()
 
@@ -837,26 +839,27 @@ class NNVerifExperiment(Experiment):
 
         fig = plt.figure(figsize=(6.4,5))
         ax = plt.gca()
-        plt.plot(compTime_randUP_vec, dH_randUP_vec, c='tab:orange', linewidth=2)
-        plt.plot(compTime_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', linewidth=2)
+        print("compTime_ReachLP_noSplit_lp =", compTime_ReachLP_noSplit_lp)
+        print("dH_ReachLP_noSplit_lp =", dH_ReachLP_noSplit_lp)
+        plt.scatter(compTime_ReachLP_noSplit_lp, dH_ReachLP_noSplit_lp, 
+                    c='tab:green', marker='+', label=r'ReachLP', linewidth=3, s=180)
+        plt.plot(compTime_randUP_vec, dH_randUP_vec, c='tab:orange', label=r'RandUP', linewidth=3)
+        plt.plot(compTime_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', label=r'Algorithm 1', linewidth=3)
+        plt.legend(fontsize=30, loc='center right', #bbox_to_anchor=(0.1, 0.3), 
+                    labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
 
         plt.xlabel(r'Time [s]',       fontsize=30)
         # plt.ylabel(r'$d_H(H(\mathcal{X}_T),\hat{H}(\mathcal{X}_T)\,)$', fontsize=30)
-        plt.ylabel(r'Estimation error', fontsize=30)
+        plt.ylabel(r'Estimation Error', fontsize=30)
         plt.xticks(fontsize=28)
         plt.yticks(fontsize=28)
-        # plt.gca().axes.xaxis.set_ticklabels([1e-4, 1e-3, 1e-2, 1e-1, 1e0])
-        # ax.set_xticklabels([2e-1, 5e-1, 8e-1, 1e-1])
-        # ax.set_yticklabels([1e-4, 1e-3, 1e-2, 1e-1, 1e0])
         ax.set_xscale('log')
         ax.set_yscale('log')
         plt.grid(which='minor', alpha=0.5, linestyle='--')
         plt.grid(which='major', alpha=0.75, linestyle=':')
         plt.xlim(0.5e-2,1.4e-1)
-        plt.ylim(2e-4,0.3)
+        plt.ylim(9e-5,1.3)
         plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.98, wspace=0.2, hspace=0.2)
-        # plt.legend(fontsize=22, loc='upper left', #bbox_to_anchor=(0.1, 0.3), 
-        #     labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
         plt.savefig(self.filename+"_dh_vs_comp_time.png")
 
         # --------------------------------------------------
