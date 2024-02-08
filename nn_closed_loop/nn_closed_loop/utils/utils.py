@@ -73,6 +73,7 @@ def is_in_convex_hull(p, hull):
     if not isinstance(hull,Delaunay):
         hull = Delaunay(hull)
     return hull.find_simplex(p)>=-1e-3
+
 def is_hull1_a_subset_of_hull2(hull_1, hull_2):
     pts_1 = hull_1.points[hull_1.vertices,:]
     hull_2_delaunay = Delaunay(hull_2.points)
@@ -80,7 +81,6 @@ def is_hull1_a_subset_of_hull2(hull_1, hull_2):
         if not(is_in_convex_hull(pt, hull_2_delaunay)):
             return False
     return True
-
 
 def distance_point_to_segment(point, seg_pt_1, seg_pt_2):
     # https://stackoverflow.com/questions/41000123/computing-the-distance-to-a-convex-hull
@@ -101,6 +101,7 @@ def distance_point_to_segment(point, seg_pt_1, seg_pt_2):
     dy = y - y3
     dist = np.sqrt(dx*dx + dy*dy)
     return dist
+
 def distance_point_to_convex_hull(point, hull):
     pts_hull = hull.points[hull.vertices,:2]
     pts_hull = np.append(pts_hull, pts_hull[0,:][np.newaxis,:], axis=0)
@@ -114,6 +115,7 @@ def distance_point_to_convex_hull(point, hull):
             pt_hull_2 = pts_hull[0,:]
         dists[i] = distance_point_to_segment(point, pt_hull_1, pt_hull_2)
     return np.min(dists)
+
 def Hausdorff_dist_two_convex_hulls(hull_1, hull_2):
     pts_hull_1 = hull_1.points[hull_1.vertices,:2]
     pts_hull_2 = hull_2.points[hull_2.vertices,:2]
@@ -124,6 +126,7 @@ def Hausdorff_dist_two_convex_hulls(hull_1, hull_2):
     for i, pt in enumerate(pts_hull_2):
         dists21[i] = distance_point_to_convex_hull(pt, hull_1)
     return np.maximum(np.max(dists12), np.max(dists21))
+
 def are_points_in_ball(center, radius, points):
     # Inputs:
     #   center - (xdim,)
@@ -132,6 +135,7 @@ def are_points_in_ball(center, radius, points):
     # Outputs:
     #   B_are_in_ball - (M,) (vector of booleans)
     return np.linalg.norm(points-center[None,:], axis=1)<=radius
+
 def dist_points_to_ball(center, radius, points):
     # Inputs:
     #   center - (xdim,)
@@ -140,6 +144,7 @@ def dist_points_to_ball(center, radius, points):
     # Outputs:
     #   dists_to_ball - (M,) (vector of floats)
     return np.maximum(0, np.linalg.norm(points-center[None,:], axis=1)-radius)
+
 def dist_points_to_sphere(center, radius, points):
     # Inputs:
     #   center - (xdim,)
@@ -148,6 +153,7 @@ def dist_points_to_sphere(center, radius, points):
     # Outputs:
     #   dists_to_sphere - (M,) (vector of floats)
     return np.abs(np.linalg.norm(points-center[None,:], axis=1)-radius)
+
 def Hausdorff_dist_ball_hull(ball_c, ball_r, hull):
     # Inputs:
     #   center - (xdim,)
@@ -174,15 +180,87 @@ def Hausdorff_dist_ball_hull(ball_c, ball_r, hull):
     hull_ball = ConvexHull(sampled_pts)
 
     return Hausdorff_dist_two_convex_hulls(hull, hull_ball)
+
 def volume_n_ball(n=2, ball_r=1.0):
     np_pi, gamma = np.pi, math.gamma(n/2. + 1)
     vol = (np_pi**(n / 2.) / gamma) * (ball_r**n)
     return vol
 
-# dists=[]
-# for i in range(len(points)-1):
-#     dists.append(dist(points[i][0],points[i][1],points[i+1][0],points[i+1][1],p[0],p[1]))
-# dist = min(dists)
+
+
+def sample_pts_unit_ball(dim, NB_pts):
+    """
+    Uniformly samples points in a d-dimensional sphere (in a ball)
+    Points characterized by    ||x||_2 < 1
+    arguments:  dim    - nb of dimensions
+                NB_pts - nb of points
+    output:     pts    - points sampled uniformly in ball [xdim x NB_pts]
+    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
+    """
+    us    = np.random.normal(0,1,(dim,NB_pts))
+    norms = np.linalg.norm(us, 2, axis=0)
+    rs    = np.random.random(NB_pts)**(1.0/dim)
+    pts   = rs*us / norms
+    return pts
+
+def sample_pts_unit_sphere(dim, NB_pts, random=True):
+    """
+    Uniformly samples points on a d-dimensional sphere (boundary of a ball)
+    Points characterized by    ||x||_2 = 1
+    arguments:  dim    - nb of dimensions
+                NB_pts - nb of points
+                random - True: Uniform sampling. 
+                         False: Uniform deterministic grid 
+    output:     pts    - points on the boundary of the sphere [xdim x NB_pts]
+    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
+    """
+    if dim == 2 and random == False:
+        angles = np.linspace(0., 2*np.pi, num=NB_pts, endpoint=False)
+        pts = np.array([np.cos(angles), np.sin(angles)])
+        return pts
+    if random == False and dim > 2:
+        raise ValueError("sample_pts_unit_sphere: non random sampling not implemented")
+    u = np.random.normal(0, 1, (dim, NB_pts))
+    d = np.sum(u**2, axis=0) **(0.5)
+    pts = u/d
+    return pts
+
+def sample_pts_in_ellipsoid(mu, Q, NB_pts):
+    """
+    Uniformly samples points in an ellipsoid, specified as
+            (xi-mu)^T Q^{-1} (xi-mu) <= 1
+    arguments: mu - mean [dim]
+                Q - Q [dim x dim]
+    output:     pts - points sampled uniformly in ellipsoid [xdim x NB_pts]
+    """
+    xs = sample_pts_unit_ball(mu.shape[0], NB_pts)
+    E  = np.linalg.cholesky(Q)
+    ys = (np.array(E@xs).T + mu).T
+    return ys
+
+def sample_pts_ellipsoid_surface(mu, Q, NB_pts, random=True):
+    """
+    Uniformly samples points on the surface of an ellipsoid, specified as
+    (xi-mu)^T Q^{-1} (xi-mu) == 1
+    arguments: mu      - mean [dim]
+                Q      - Q [dim x dim]
+                NB_pts - nb of points
+                random - True: Uniform sampling. 
+                         False: Uniform deterministic grid
+    output:    ell_pts - points on the boundary of the ellipse [xdim x NB_pts]
+    """
+    dim = mu.shape[0]
+    if dim != Q.shape[0] or dim != Q.shape[1]:
+        raise ValueError("mu (%d) and Q (%d,%d) must be the same size" %(mu.shape[0], Q.shape[0], Q.shape[1]))
+    if (Q == np.zeros((dim,dim))).all():
+        return np.zeros((dim,NB_pts))
+    if random == False and dim > 2:
+        raise ValueError("sample_pts_ellipsoid_surface: non random sampling not implemented")
+    mut = np.array([mu])
+    pts = sample_pts_unit_sphere(dim, NB_pts, random=random).T
+    E = np.linalg.cholesky(Q)
+    ell_pts = (mut + pts @ E.T).T
+    return ell_pts
 
 if __name__ == "__main__":
     test_1 = False

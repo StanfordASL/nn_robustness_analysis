@@ -6,7 +6,7 @@ setup(
     install_requires=[
         "torch",
         "matplotlib",
-        "pandas",
+        "pandas==1.5.3",
         "nn_partition",
         "tabulate",
     ],

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 from nn_closed_loop.utils.nn_bounds import BoundClosedLoopController
+from nn_closed_loop.utils.utils import sample_pts_unit_ball, sample_pts_in_ellipsoid
 import nn_closed_loop
 import nn_closed_loop.constraints as constraints
 import torch
@@ -13,44 +14,6 @@ from scipy.spatial import ConvexHull
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
-
-
-def sample_pts_unit_ball(dim, NB_pts):
-    """
-    Uniformly samples points in a d-dimensional sphere (in a ball)
-    Points characterized by    ||x||_2 < 1
-    arguments:  dim    - nb of dimensions
-                NB_pts - nb of points
-    output:     pts    - points sampled uniformly in ball [xdim x NB_pts]
-    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
-    """
-    us    = np.random.normal(0,1,(dim,NB_pts))
-    norms = np.linalg.norm(us, 2, axis=0)
-    rs    = np.random.random(NB_pts)**(1.0/dim)
-    pts   = rs*us / norms
-    return pts
-
-def sample_pts_unit_sphere(dim, NB_pts, random=True):
-    """
-    Uniformly samples points on a d-dimensional sphere (boundary of a ball)
-    Points characterized by    ||x||_2 = 1
-    arguments:  dim    - nb of dimensions
-                NB_pts - nb of points
-                random - True: Uniform sampling. 
-                         False: Uniform deterministic grid 
-    output:     pts    - points on the boundary of the sphere [xdim x NB_pts]
-    Reference: http://extremelearning.com.au/how-to-generate-uniformly-random-points-on-n-spheres-and-n-balls/
-    """
-    if dim == 2 and random == False:
-        angles = np.linspace(0., 2*np.pi, num=NB_pts, endpoint=False)
-        pts = np.array([np.cos(angles), np.sin(angles)])
-        return pts
-    if random == False and dim > 2:
-        raise ValueError("sample_pts_unit_sphere: non random sampling not implemented")
-    u = np.random.normal(0, 1, (dim, NB_pts))
-    d = np.sum(u**2, axis=0) **(0.5)
-    pts = u/d
-    return pts
 
 class Dynamics:
     def __init__(
@@ -217,8 +180,9 @@ class Dynamics:
         for t in range(num_timesteps):
             ax.scatter(
                 *[xs[:, t, i] for i in input_dims],
-                color=(0.3,0.3,0.3),#colors[t],
+                color=(0.3,0.3,0.3),
                 s=0.5,
+                alpha=0.05,
                 zorder=zorder,
             )
 
@@ -286,74 +250,20 @@ class Dynamics:
             # Initial state
             if isinstance(input_constraint, constraints.LpConstraint):
                 if input_constraint.p == np.inf:
-                    xs[:, 0, :] = np.random.uniform(
-                        low=input_constraint.range[:, 0],
-                        high=input_constraint.range[:, 1],
-                        size=(num_runs, self.num_states),
-                    )
+                    # xs[:, 0, :] = np.random.uniform(
+                    #     low=input_constraint.range[:, 0],
+                    #     high=input_constraint.range[:, 1],
+                    #     size=(num_runs, self.num_states),
+                    # )
+                    ellipsoid_center = 0.5 * (
+                        input_constraint.range[:, 0] + input_constraint.range[:, 1])
+                    ellipsoid_delta = input_constraint.range[:, 1] - input_constraint.range[:, 0]
+                    ellipsoid_delta = 0.5 * ellipsoid_delta # since distance to center
+                    ellipsoid_Q = self.num_states * np.diag(ellipsoid_delta**2)
+                    xs[:, 0, :] = sample_pts_in_ellipsoid(
+                        ellipsoid_center, ellipsoid_Q, num_runs).T
                 else:
                     raise NotImplementedError
-            elif isinstance(input_constraint, constraints.PolytopeConstraint):
-                init_state_range = input_constraint.to_linf()
-                if isinstance(init_state_range, list):
-                    # For backreachability, We will have N polytope input 
-                    # constraints, so sample from those N sets individually then 
-                    # merge to get (xs, us)
-
-                    # want total of num_runs samples, so allocate a (roughly)
-                    # equal number of "runs" to each polytope
-                    num_runs_ = np.append(np.arange(0, num_runs, num_runs // len(init_state_range)), num_runs)
-                    for i in range(len(init_state_range)):
-                        # Sample a handful of points
-                        xs_ = np.random.uniform(
-                            low=init_state_range[i][:, 0],
-                            high=init_state_range[i][:, 1],
-                            size=(num_runs_[i+1]-num_runs_[i], self.num_states),
-                        )
-                        # check which of those are within this polytope
-                        within_constraint_inds = np.where(
-                            np.all(
-                                (
-                                    np.dot(input_constraint.A[i], xs_.T)
-                                    - np.expand_dims(input_constraint.b[i], axis=-1)
-                                )
-                                <= 0,
-                                axis=0,
-                            )
-                        )
-
-                        # append polytope-satisfying samples to xs__
-                        if i == 0:
-                            xs__ = xs_[within_constraint_inds]
-                        else:
-                            xs__ = np.vstack([xs__, xs_[within_constraint_inds]])
-
-                    # assign things so (xs, us) end up as the right shape
-                    us = np.zeros((xs__.shape[0], num_timesteps, self.num_inputs))
-                    xs = np.zeros((xs__.shape[0], num_timesteps, self.num_states))
-                    xs[:, 0, :] = xs__
-                else:
-                    # For forward reachability...
-                    # sample num_runs pts from within the state range (box)
-                    # and drop all the points that don't satisfy the polytope
-                    # constraint
-                    xs[:, 0, :] = np.random.uniform(
-                        low=init_state_range[:, 0],
-                        high=init_state_range[:, 1],
-                        size=(num_runs, self.num_states),
-                    )
-                    within_constraint_inds = np.where(
-                        np.all(
-                            (
-                                np.dot(input_constraint.A, xs[:, 0, :].T)
-                                - np.expand_dims(input_constraint.b, axis=-1)
-                            )
-                            <= 0,
-                            axis=0,
-                        )
-                    )
-                    xs = xs[within_constraint_inds]
-                    us = us[within_constraint_inds]
             else:
                 raise NotImplementedError
 
@@ -429,8 +339,32 @@ class Dynamics:
         ws = self.w_ball_radius * ns
         return ws
 
+    def n_X0(self, x0, c, Q, Qinv):
+        normal_vector = Qinv @ (x0 - c)
+        normal_vector = normal_vector / np.linalg.norm(normal_vector)
+        return normal_vector
+
+    def n_X0_batched(self, x0s, c, Q, Qinv):
+        # x0s - (M, num_states)
+        normal_vectors = Qinv @ (x0s - c).T
+        normal_vectors = normal_vectors / np.linalg.norm(normal_vector, axis=0)
+        normal_vectors = normal_vectors.T
+        return normal_vectors
+
+    def n_X0_inverse(self, d, c, Q, Qinv):
+        x0 = c + Q @ d / np.sqrt(d.T @ Q @ d)
+        return w
+
+    def n_X0_inverse_batched(self, ds, c, Q, Qinv):
+        # ds - (M, num_states)
+        x0s = Q @ ds.T / np.sqrt(np.einsum('Mx,xy,My->M', ds, Q, ds))
+        x0s = x0s.T + c
+        return x0s
+
     def pmp_disturbances_ws_from_qs(self, qs):
-        return self.n_W_inverse_batched(qs)
+        ds = -qs.T / np.linalg.norm(qs, axis=1)
+        ws = self.n_W_inverse_batched(ds).T
+        return ws
 
     def collect_extremal_data(
         self,
@@ -474,15 +408,23 @@ class Dynamics:
                     high=input_constraint.range[:, 1],
                     size=(num_samples, self.num_states),
                 )
+                X0_ellipsoid_center = 0.5 * (
+                    input_constraint.range[:, 0] + input_constraint.range[:, 1])
+                X0_ellipsoid_delta = input_constraint.range[:, 1] - input_constraint.range[:, 0]
+                X0_ellipsoid_delta = 0.5 * X0_ellipsoid_delta # since distance to center
+                X0_ellipsoid_Q = self.num_states * np.diag(X0_ellipsoid_delta**2)
+                X0_ellipsoid_Qinv = np.diag(1.0 / (self.num_states * X0_ellipsoid_delta**2))
             else:
                 raise NotImplementedError
-        # Initial values of the disturbances
+
+        # Initial directions
         thetas = np.linspace(0, 2*np.pi, num_samples)
-        w0s_x = self.w_ball_radius * np.cos(thetas)
-        w0s_y = self.w_ball_radius * np.sin(thetas)
-        w0s = np.stack((w0s_x, w0s_y)).T # (num_samples, 2)
-        # Initial augmented state
-        qs[:, 0, :] = self.n_W_batched(w0s)
+        d0s = np.stack((np.cos(thetas), np.sin(thetas))).T # (num_samples, 2)
+        # Initial states
+        xs[:, 0, :] = self.n_X0_inverse_batched(-d0s, 
+            X0_ellipsoid_center, X0_ellipsoid_Q, X0_ellipsoid_Qinv)
+        # Initial augmented states
+        qs[:, 0, :] = d0s
 
         t = 0
         step = 0
@@ -520,12 +462,8 @@ class Dynamics:
             # chain rule to get Jacobian of f_dynamics(x, neural_net(x))
             fs_dx_times_qs = (np.einsum('xy,Mx->My', A_ct, qs_t) + 
                np.einsum('Mxy,Mx->My', np.einsum('xu,Muy->Mxy', b_ct, us_t_dx), qs_t))
-            qs_dot = -self.project_batched(qs_t, fs_dx_times_qs)
+            qs_dot = -fs_dx_times_qs
             qs_next = qs_t + dyns_dt * qs_dot
-
-            # project qs onto the sphere (a retraction)
-            # alternatively, we could use the exponential map
-            qs_next = (qs_next.T / np.linalg.norm(qs_next, axis=1)).T
 
             # save data
             xs[:, step + 1, :] = xs_next
@@ -602,7 +540,7 @@ if __name__ == "__main__":
     init_state_range = np.array([
         # (num_inputs, 2)
         [2.5, 3.0],  # x0min, x0max
-        [-0.25, 0.25],  # x1min, x1max
+        [-0.1, 0.1], # x1min, x1max
     ])
     xs, us = dynamics.collect_data(
         t_max=10,

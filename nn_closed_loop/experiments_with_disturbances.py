@@ -346,7 +346,7 @@ class NNVerifExperiment(Experiment):
         args.show_plot = False
         args.make_animation = False
         args.show_animation = False
-        args.init_state_range = "[[2.74999, 2.75001], [-1e-6, 1e-6]]"
+        args.init_state_range = "[[2.5, 3], [-0.1, 0.1]]"
         args.state_feedback = True
         args.system = self.system
         args.controller_model = self.controller_model
@@ -495,8 +495,8 @@ class NNVerifExperiment(Experiment):
 
         init_state_range = np.array(
             [  # (num_inputs, 2)
-                [2.74999, 2.75001],  # x0min, x0max
-                [-1e-6, 1e-6],  # x1min, x1max
+                [2.5, 3],       # x0min, x0max
+                [-0.1, 0.1],  # x1min, x1max
             ]
         )
 
@@ -642,11 +642,10 @@ class NNVerifExperiment(Experiment):
                         # analyzer.partitioner.default_lines = analyzer.partitioner.animate_axes.lines.copy()
 
         # plt.legend(fontsize=20)
-        lgd = plt.legend(fontsize=34, #loc='upper center', 
-            bbox_to_anchor=(0.41, 0.5, 0.5, 0.5), 
+        lgd = plt.legend(fontsize=31, loc='upper left', 
                     labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
-        plt.xlim([-0.15,2.8])
-        plt.ylim([-0.885,0.02])
+        plt.xlim([0, 3.15])
+        plt.ylim([-1., 0.2])
         plt.tight_layout()
 
         if B_zoom:
@@ -799,7 +798,8 @@ class NNVerifExperiment(Experiment):
         plt.plot(M_randUP_vec, dH_randUP_vec, c='tab:orange', label=r'RandUP', linewidth=3)
         plt.plot(M_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', label=r'Algorithm 1', linewidth=3)
 
-        plt.legend(fontsize=30, loc='center right', #bbox_to_anchor=(0.1, 0.3), 
+        plt.legend(fontsize=30,  #loc='center right', 
+                    bbox_to_anchor=(0.33, 0.575), 
                     labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
         plt.xlabel(r'Sample Size $M$', fontsize=30)
         plt.ylabel(r'Estimation Error', fontsize=30)
@@ -809,8 +809,8 @@ class NNVerifExperiment(Experiment):
         plt.gca().set_yscale('log')
         plt.grid(which='minor', alpha=0.5, linestyle='--')
         plt.grid(which='major', alpha=0.75, linestyle=':')
-        plt.ylim(9e-5,1.3)
-        plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.98, wspace=0.2, hspace=0.2)
+        plt.ylim(2e-4,10)
+        plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.96, wspace=0.2, hspace=0.2)
         plt.savefig(self.filename+"_dH.png")
         # plt.show()
 
@@ -845,10 +845,11 @@ class NNVerifExperiment(Experiment):
                     c='tab:green', marker='+', label=r'ReachLP', linewidth=3, s=180)
         plt.plot(compTime_randUP_vec, dH_randUP_vec, c='tab:orange', label=r'RandUP', linewidth=3)
         plt.plot(compTime_pmpUP_vec, dH_pmpUP_vec, c='tab:blue', label=r'Algorithm 1', linewidth=3)
-        plt.legend(fontsize=30, loc='center right', #bbox_to_anchor=(0.1, 0.3), 
+        plt.legend(fontsize=30, #loc='center right', 
+                    bbox_to_anchor=(0.33, 0.575), 
                     labelspacing=0.1, handlelength=1., handletextpad=0.3, borderaxespad=0.2, framealpha=1)
 
-        plt.xlabel(r'Time [s]',       fontsize=30)
+        plt.xlabel(r'Computation Time [s]',       fontsize=30)
         # plt.ylabel(r'$d_H(H(\mathcal{X}_T),\hat{H}(\mathcal{X}_T)\,)$', fontsize=30)
         plt.ylabel(r'Estimation Error', fontsize=30)
         plt.xticks(fontsize=28)
@@ -857,9 +858,9 @@ class NNVerifExperiment(Experiment):
         ax.set_yscale('log')
         plt.grid(which='minor', alpha=0.5, linestyle='--')
         plt.grid(which='major', alpha=0.75, linestyle=':')
-        plt.xlim(0.5e-2,1.4e-1)
-        plt.ylim(9e-5,1.3)
-        plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.98, wspace=0.2, hspace=0.2)
+        # plt.xlim(0.5e-2,1.6e-1)
+        plt.ylim(2e-4,10)
+        plt.subplots_adjust(left=0.21, bottom=0.205, right=0.962, top=0.96, wspace=0.2, hspace=0.2)
         plt.savefig(self.filename+"_dh_vs_comp_time.png")
 
         # --------------------------------------------------

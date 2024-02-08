@@ -197,7 +197,7 @@ class ClosedLoopPartitioner(partitioners.Partitioner):
 
         self.animate_fig, self.animate_axes = plt.subplots(1, 1, 
                                                            subplot_kw=dict(projection=projection),
-                                                           figsize=(8,8))
+                                                           figsize=(8, 7))
         plt.grid()
 
         self.animate_axes.set_aspect(aspect)
