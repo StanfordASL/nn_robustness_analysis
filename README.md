@@ -1,10 +1,10 @@
 ### About
 
-This repository contains code to reproduce the neural feedback loop analysis experiment (Section V.A) from our paper on convex hull reachability analysis under disturbances (T. Lew, R. Bonalli, M. Pavone, ["Exact characterization of the convex hulls of reachable sets"](https://arxiv.org/abs/2303.17674), 2023).
+This repository contains code to reproduce the neural feedback loop analysis experiment (Section XI.B) from our paper on convex hull reachability analysis (T. Lew, R. Bonalli, M. Pavone, ["Convex Hulls of Reachable Sets"](https://arxiv.org/abs/2303.17674), 2024).
 
 ![continuous_time_reachability](/docs/continuous_time_reachability.jpg)
 
-This code is a branch of the fork at https://github.com/StanfordASL/nn_robustness_analysis of https://github.com/mit-acl/nn_robustness_analysis with minor modifications. This branch only supports the experiments of the paper and changes may break previous functionalities (for those, please revert to the RandUP branch). This code supports (a) 2d integrator system, (b) continuous-time reachability problem with fixed initial state under disturbances, (c) ReachLP, RandUP, and Algorithm 1 (see pmpUP.py and Dynamics.py), (d) ReLU activations are automatically replaced with SoftPlus activations (see crown_ibp/crown_ibp/bound_layers.py). We refer to the paper for further details.
+This code is a branch of the fork at https://github.com/StanfordASL/nn_robustness_analysis of https://github.com/mit-acl/nn_robustness_analysis with minor modifications. This branch only supports the experiments of the paper and changes may break previous functionalities (for those, please revert to the RandUP branch). This code supports (a) 2d integrator system, (b) continuous-time reachability problem with uncertain initial state under disturbances, (c) ReachLP, RandUP, and Algorithm 1 (see pmpUP.py and Dynamics.py), (d) ReLU activations are automatically replaced with SoftPlus activations (see crown_ibp/crown_ibp/bound_layers.py). We refer to the paper for further details.
 
 To reproduce results, run:
 ```bash
